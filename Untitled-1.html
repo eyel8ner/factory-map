@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Factory Map — THB badge clusters</title>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <!-- PapaParse -->
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+
+    .price-badge{
+      font:600 12px/1.2 "Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      padding:6px 10px;border-radius:999px;color:#fff;background:#1d4ed8;
+      border:1px solid rgba(255,255,255,.45); box-shadow:0 1px 0 rgba(0,0,0,.15),0 8px 20px rgba(0,0,0,.15);
+      transform:translateY(-2px); white-space:nowrap; display:inline-block;
+    }
+    .price-badge.small{font-size:11px;padding:4px 8px}
+    .badge-blue{background:#1d4ed8}.badge-green{background:#059669}.badge-purple{background:#6d28d9}
+    .badge-orange{background:#ea580c}.badge-pink{background:#db2777}.badge-teal{background:#0f766e}.badge-gray{background:#374151}
+
+    .cluster-pill{
+      display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border-radius:999px;color:#fff;
+      box-shadow:0 1px 0 rgba(0,0,0,.15),0 10px 25px rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.45);
+      font:700 13px/1 "Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;white-space:nowrap
+    }
+    .cluster-blue{background:#1d4ed8}.cluster-green{background:#059669}.cluster-purple{background:#6d28d9}
+    .cluster-orange{background:#ea580c}.cluster-pink{background:#db2777}.cluster-teal{background:#0f766e}.cluster-gray{background:#374151}
+
+    .toolbar{position:absolute;top:10px;left:10px;z-index:1000;background:#fff;border-radius:14px;
+      box-shadow:0 8px 24px rgba(0,0,0,.12);padding:10px 12px;min-width:280px}
+    .toolbar h3{margin:0 0 6px;font:700 14px/1.2 Inter,system-ui,sans-serif}
+    .toolbar label{font:600 12px Inter,sans-serif}
+    .toolbar input,.toolbar select,.toolbar button{width:100%;padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px;outline:none;font:500 12px Inter}
+    .toolbar button{cursor:pointer}
+    .toolbar .row{display:flex;gap:8px;align-items:center}
+    .toolbar .row>*{flex:1}
+    .toolbar .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+    .chip{padding:6px 10px;border-radius:999px;background:#f3f4f6;font:600 11px Inter;cursor:pointer}
+    .soft{color:#6b7280;font-weight:600;font-size:11px}
+    #status{margin-top:6px;font:600 11px Inter;color:#374151}
+
+    .popup-card{width:300px}
+    .popup-card img{width:100%;height:160px;object-fit:cover;border-radius:12px;margin-bottom:8px}
+    .popup-card .title{font:800 16px/1.2 Inter,sans-serif;margin:0 0 4px}
+    .popup-card .meta{font:600 12px/1.4 Inter,sans-serif;color:#374151}
+
+    .leaflet-control-attribution{font-size:11px}
+    /* let DivIcon size follow content */
+    .factory-price.leaflet-div-icon,.cluster-div.leaflet-div-icon{width:auto!important;height:auto!important;background:transparent;border:none}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="toolbar" id="toolbar">
+    <h3>แผนที่โรงงาน (สไตล์ป้ายราคา)</h3>
+
+    <div class="row" style="margin-bottom:6px;">
+      <input id="search" placeholder="ค้นหา: ชื่อโรงงาน / Sales / จังหวัด"/>
+      <button id="btnSearch" title="ค้นหา">ค้นหา</button>
+    </div>
+
+    <div class="row" style="margin-bottom:6px;">
+      <select id="mode">
+        <option value="sum">ป้ายคลัสเตอร์: SUM(มูลค่า)</option>
+        <option value="avg">AVG(มูลค่า)</option>
+        <option value="count">จำนวนโรงงาน</option>
+      </select>
+      <select id="colorBy">
+        <option value="salesperson">สีตาม Sales</option>
+        <option value="province">สีตามจังหวัด</option>
+        <option value="none">สีเดียวทั้งหมด</option>
+      </select>
+    </div>
+
+    <label class="soft">โหลดข้อมูลได้ 2 วิธี</label>
+    <div class="row" style="margin-bottom:6px;">
+      <input id="csvUrl" placeholder="วางลิงก์ CSV (เช่น Google Sheets › Publish to web › CSV)"/>
+      <button id="btnLoad">Load URL</button>
+    </div>
+    <div style="margin-bottom:6px;">
+      <input type="file" id="filePicker" accept=".csv,text/csv"/>
+    </div>
+
+    <div id="status" class="soft">ยังไม่ได้โหลดข้อมูล (ใช้ demo ชั่วคราว)</div>
+    <div class="chips" id="legend"></div>
+  </div>
+
+  <script>
+    // ---------- Helpers ----------
+    const fmtTHB = n => (isFinite(n)? new Intl.NumberFormat('th-TH').format(+n) : n);
+    const getParam = (k) => new URLSearchParams(location.search).get(k);
+
+    function hashCode(str){ let h=0; for(let i=0;i<str.length;i++){ h=((h<<5)-h)+str.charCodeAt(i); h|=0; } return Math.abs(h); }
+    const colorClasses = [
+      {m:'badge-blue', c:'cluster-blue'},
+      {m:'badge-green', c:'cluster-green'},
+      {m:'badge-purple', c:'cluster-purple'},
+      {m:'badge-orange', c:'cluster-orange'},
+      {m:'badge-pink', c:'cluster-pink'},
+      {m:'badge-teal', c:'cluster-teal'},
+      {m:'badge-gray', c:'cluster-gray'},
+    ];
+
+    // ---------- Map ----------
+    const map = L.map('map', { zoomControl: true }).setView([13.736717,100.523186], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let markersRaw = []; // {lat,lng,name,amount,salesperson,province,photo,address}
+    let clusterLayer = null;
+    let currentMode = 'sum';
+    let colorBy = 'salesperson';
+
+    // Normalize CSV rows -> internal fields
+    function normalizeRows(arr){
+      return arr.map((r,i)=>({
+        id: r.id || r.ID || r.factory_id || '',
+        name: r.name || r.factory || r.Factory || r["factory_name"] || `Factory #${i+1}`,
+        lat: r.lat || r.latitude || r.Lat || r.Latitude,
+        lng: r.lng || r.lon || r.long || r.longitude || r.Lng || r.Longitude,
+        amount: +r.amount || +r.value || +r.total || +r.price || 0,
+        salesperson: r.salesperson || r.owner || r.account || r.Sales || '',
+        province: r.province || r.Province || r.city || '',
+        address: r.address || r.Address || '',
+        photo: r.photo || r.image || '',
+      }));
+    }
+
+    function setStatus(msg){ document.getElementById('status').textContent = msg; }
+
+    // Build marker + cluster layers
+    function rebuild() {
+      if(clusterLayer) { map.removeLayer(clusterLayer); }
+
+      clusterLayer = L.markerClusterGroup({
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        maxClusterRadius: 60,
+        iconCreateFunction: function(cluster) {
+          const children = cluster.getAllChildMarkers();
+          let agg = 0; const values = [];
+          children.forEach(m=>{ const v = +m.options.metadata.amount || 0; values.push(v); agg += v; });
+          let label = (currentMode==='sum')  ? ('฿ ' + fmtTHB(agg)) :
+                      (currentMode==='avg')  ? ('฿ ' + fmtTHB(values.length? (agg/values.length):0)) :
+                                               (values.length.toString());
+
+          const groups = {};
+          children.forEach(m=>{
+            const key = colorBy==='salesperson' ? (m.options.metadata.salesperson||'')
+                      : colorBy==='province'    ? (m.options.metadata.province||'')
+                      : 'single';
+            groups[key] = (groups[key]||0)+1;
+          });
+          const dominant = Object.entries(groups).sort((a,b)=>b[1]-a[1])[0]?.[0] || 'single';
+          const cc = colorClasses[ hashCode(dominant) % colorClasses.length ].c;
+          return new L.DivIcon({ html:`<div class="cluster-pill ${cc}">${label}</div>`, className:'cluster-div', iconSize:null });
+        }
+      });
+
+      const markers = [];
+      for (const r of markersRaw) {
+        if(!r.lat || !r.lng) continue;
+        const key = colorBy==='salesperson' ? r.salesperson : (colorBy==='province' ? r.province : 'single');
+        const cls = colorClasses[ hashCode(key||'single') % colorClasses.length ].m;
+        const badge = `<div class="price-badge ${cls}">฿ ${fmtTHB(r.amount||0)}</div>`;
+        const icon = L.divIcon({ className:'factory-price', html:badge, iconSize:null, iconAnchor:[25,12]});
+        const m = L.marker([+r.lat,+r.lng], { icon, metadata: r });
+        const img = r.photo ? `<img src="${r.photo}" alt="factory"/>` : '';
+        const title = r.name || '(ไม่มีชื่อ)';
+        const popup = `
+          <div class="popup-card">
+            ${img}
+            <div class="title">${title}</div>
+            <div class="meta">ยอดซื้อ/ขาย: <b>฿ ${fmtTHB(r.amount||0)}</b></div>
+            <div class="meta">Sales: <b>${r.salesperson||'-'}</b></div>
+            <div class="meta">จังหวัด: <b>${r.province||'-'}</b></div>
+            <div class="meta">ที่อยู่: ${r.address||'-'}</div>
+            ${r.id? `<div class="meta">รหัสโรงงาน: ${r.id}</div>`:''}
+          </div>`;
+        m.bindPopup(popup);
+        clusterLayer.addLayer(m);
+        markers.push(m);
+      }
+      map.addLayer(clusterLayer);
+
+      if(markers.length){
+        try{ map.fitBounds( L.featureGroup(markers).getBounds().pad(0.2) ); }catch(e){}
+      }
+
+      buildLegend();
+      setStatus(`โหลดข้อมูลแล้ว: ${markersRaw.length.toLocaleString()} แถว`);
+    }
+
+    function buildLegend(){
+      const legend = document.getElementById('legend');
+      legend.innerHTML = '';
+      const counts = {};
+      markersRaw.forEach(r=>{
+        const key = colorBy==='salesperson' ? r.salesperson : (colorBy==='province' ? r.province : 'ทั้งหมด');
+        counts[key||'ไม่ระบุ'] = (counts[key||'ไม่ระบุ']||0)+1;
+      });
+      const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+      for(const [key,cnt] of top){
+        const cls = colorClasses[ hashCode((key||'single')) % colorClasses.length ].m;
+        const div = document.createElement('div');
+        div.className='chip';
+        div.innerHTML = `<span class="price-badge small ${cls}">${key} · ${cnt}</span>`;
+        legend.appendChild(div);
+      }
+    }
+
+    // ---------- Loaders ----------
+    async function loadFromUrl(url){
+      return new Promise((resolve, reject)=>{
+        Papa.parse(url, { header:true, download:true, skipEmptyLines:true,
+          complete: (res)=> resolve( normalizeRows(res.data) ),
+          error: err => reject(err)
+        });
+      });
+    }
+
+    function loadFromFile(file){
+      return new Promise((resolve, reject)=>{
+        Papa.parse(file, { header:true, skipEmptyLines:true,
+          complete: (res)=> resolve( normalizeRows(res.data) ),
+          error: err => reject(err)
+        });
+      });
+    }
+
+    async function bootstrap(){
+      // ถ้ามีพารามิเตอร์ ?csv= จะลองโหลดให้ (สำหรับกรณีโฮสต์ออนไลน์)
+      const urlParam = getParam('csv');
+      if(urlParam){
+        try{
+          markersRaw = await loadFromUrl(urlParam);
+          rebuild();
+          return;
+        }catch(e){
+          console.warn('URL csv failed:', e);
+        }
+      }
+      // fallback demo
+      markersRaw = demoRows;
+      rebuild();
+      setStatus('ยังไม่ได้เลือกไฟล์/URL (กำลังแสดง demo)');
+    }
+
+    // ---------- UI Events ----------
+    document.getElementById('btnLoad').addEventListener('click', async ()=>{
+      const v = document.getElementById('csvUrl').value.trim();
+      if(!v){ alert('ใส่ลิงก์ CSV ก่อน'); return; }
+      try{
+        markersRaw = await loadFromUrl(v);
+        rebuild();
+      }catch(e){
+        alert('โหลดลิงก์ CSV ไม่สำเร็จ'); console.error(e);
+      }
+    });
+
+    document.getElementById('filePicker').addEventListener('change', async (ev)=>{
+      const file = ev.target.files?.[0];
+      if(!file) return;
+      try{
+        markersRaw = await loadFromFile(file);
+        rebuild();
+      }catch(e){
+        alert('อ่านไฟล์ CSV ไม่สำเร็จ'); console.error(e);
+      }
+    });
+
+    document.getElementById('mode').addEventListener('change', (e)=>{ currentMode = e.target.value; rebuild(); });
+    document.getElementById('colorBy').addEventListener('change', (e)=>{ colorBy = e.target.value; rebuild(); });
+
+    document.getElementById('btnSearch').addEventListener('click', ()=>{
+      const q = document.getElementById('search').value.toLowerCase();
+      if(!q) return;
+      const r = markersRaw.find(v=> [v.name, v.salesperson, v.province].some(x=> (x||'').toLowerCase().includes(q)) );
+      if(r){ map.setView([+r.lat,+r.lng], 15); }
+    });
+
+    // ---------- Demo fallback ----------
+    const demoRows = [
+      { id:'BKK-001', name:'โรงงาน A', lat:13.745, lng:100.534, amount:5090,  salesperson:'Nui',  province:'กรุงเทพฯ', address:'คลองเตย',  photo:'' },
+      { id:'BKK-002', name:'โรงงาน B', lat:13.736, lng:100.529, amount:4698, salesperson:'Nui',  province:'กรุงเทพฯ', address:'ลุมพินี',   photo:'' },
+      { id:'BKK-003', name:'โรงงาน C', lat:13.732, lng:100.547, amount:6100, salesperson:'Pao',  province:'กรุงเทพฯ', address:'พระราม 4',  photo:'' },
+      { id:'BKK-004', name:'โรงงาน D', lat:13.722, lng:100.522, amount:2128, salesperson:'Ball', province:'กรุงเทพฯ', address:'สาทร',      photo:'' },
+      { id:'BKK-005', name:'โรงงาน E', lat:13.727, lng:100.513, amount:1579, salesperson:'Mint', province:'กรุงเทพฯ', address:'สีลม',      photo:'' },
+      { id:'BKK-006', name:'โรงงาน F', lat:13.730, lng:100.503, amount:4000, salesperson:'Mint', province:'กรุงเทพฯ', address:'เจริญกรุง', photo:'' },
+      { id:'BKK-007', name:'โรงงาน G', lat:13.718, lng:100.545, amount:630,  salesperson:'Pao',  province:'กรุงเทพฯ', address:'คลองเตย',  photo:'' },
+      { id:'BKK-008', name:'โรงงาน H', lat:13.748, lng:100.525, amount:1791, salesperson:'Nui',  province:'กรุงเทพฯ', address:'ปทุมวัน',   photo:'' },
+      { id:'BKK-009', name:'โรงงาน I', lat:13.756, lng:100.535, amount:3868, salesperson:'Mint', province:'กรุงเทพฯ', address:'ชิดลม',     photo:'' },
+      { id:'BKK-010', name:'โรงงาน J', lat:13.740, lng:100.518, amount:1100, salesperson:'Ball', province:'กรุงเทพฯ', address:'คลองสาน',   photo:'' },
+      { id:'BKK-011', name:'โรงงาน K', lat:13.742, lng:100.546, amount:315,  salesperson:'Ball', province:'กรุงเทพฯ', address:'วัฒนา',     photo:'' },
+      { id:'BKK-012', name:'โรงงาน L', lat:13.734, lng:100.540, amount:592,  salesperson:'Pao',  province:'กรุงเทพฯ', address:'เพลินจิต',  photo:'' },
+    ];
+
+    bootstrap();
+  </script>
+</body>
+</html>
