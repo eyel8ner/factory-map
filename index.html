@@ -79,26 +79,20 @@
       </select>
     </div>
 
-    <label class="soft">โหลดข้อมูลได้ 2 วิธี</label>
-    <div class="row" style="margin-bottom:6px;">
-      <input id="csvUrl" placeholder="วางลิงก์ CSV (เช่น Google Sheets › Publish to web › CSV)"/>
-      <button id="btnLoad">Load URL</button>
-    </div>
+    <label class="soft">เลือกไฟล์ CSV จากเครื่อง</label>
     <div style="margin-bottom:6px;">
       <input type="file" id="filePicker" accept=".csv,text/csv"/>
     </div>
 
-    <div id="status" class="soft">ยังไม่ได้โหลดข้อมูล (ใช้ demo ชั่วคราว)</div>
+    <div id="status" class="soft">ยังไม่ได้เลือกไฟล์</div>
     <div class="chips" id="legend"></div>
   </div>
 
   <script>
     // ---------- Helpers ----------
     const fmtTHB = n => (isFinite(n)? new Intl.NumberFormat('th-TH').format(+n) : n);
-    const getParam = (k) => new URLSearchParams(location.search).get(k);
 
     function hashCode(str){ let h=0; for(let i=0;i<str.length;i++){ h=((h<<5)-h)+str.charCodeAt(i); h|=0; } return Math.abs(h); }
-    // พาเลตต์อัตโนมัติ (20 สี)
     const AUTO_PALETTE = [
       '#2563eb','#059669','#7c3aed','#ea580c','#db2777','#0f766e','#374151',
       '#16a34a','#f59e0b','#dc2626','#0891b2','#4f46e5','#14b8a6','#9333ea',
@@ -116,8 +110,6 @@
     let clusterLayer = null;
     let currentMode = 'sum';
     let colorBy = 'salesperson';
-
-    // mapping สีจากข้อมูลที่ระบุชัด (เพื่อใช้กับ cluster/legend)
     let colorMapSales = {};
     let colorMapProvince = {};
 
@@ -133,7 +125,6 @@
         province: r.province || r.Province || r.city || '',
         address: r.address || r.Address || '',
         photo: r.photo || r.image || '',
-        // NEW: สีจาก CSV (เลือกชื่อคอลัมน์ที่คุณชอบใช้)
         color: r.color || r.sales_color || r.salesperson_color || r.salesperson_colour || r.hex || r.colour || '',
         province_color: r.province_color || r.region_color || ''
       }));
@@ -154,10 +145,10 @@
       } else if(colorBy === 'province'){
         return row.province_color || colorMapProvince[key] || autoColorFromKey(key);
       } else {
-        return '#1d4ed8'; // single color
+        return '#1d4ed8';
       }
     }
-    function pickColorForKeyOnly(key){ // ใช้กับ cluster/legend เมื่อไม่มี row
+    function pickColorForKeyOnly(key){
       if(colorBy === 'salesperson'){
         return colorMapSales[key] || autoColorFromKey(key);
       } else if(colorBy === 'province'){
@@ -255,16 +246,7 @@
       }
     }
 
-    // ---------- Loaders ----------
-    async function loadFromUrl(url){
-      return new Promise((resolve, reject)=>{
-        Papa.parse(url, { header:true, download:true, skipEmptyLines:true,
-          complete: (res)=> resolve( normalizeRows(res.data) ),
-          error: err => reject(err)
-        });
-      });
-    }
-
+    // ---------- Load from local file only ----------
     function loadFromFile(file){
       return new Promise((resolve, reject)=>{
         Papa.parse(file, { header:true, skipEmptyLines:true,
@@ -274,26 +256,12 @@
       });
     }
 
-    async function bootstrap(){
-      const urlParam = getParam('csv');
-      if(urlParam){
-        try{ markersRaw = await loadFromUrl(urlParam); rebuild(); return; }
-        catch(e){ console.warn('URL csv failed:', e); }
-      }
-      // fallback demo
-      markersRaw = demoRows;
-      rebuild();
-      setStatus('ยังไม่ได้เลือกไฟล์/URL (กำลังแสดง demo)');
+    function bootstrap(){
+      setStatus('ยังไม่ได้เลือกไฟล์');
+      // ไม่โหลด demo/URL เพื่อให้มีวิธีเดียวคือเลือก CSV จากเครื่อง
     }
 
     // ---------- UI Events ----------
-    document.getElementById('btnLoad').addEventListener('click', async ()=>{
-      const v = document.getElementById('csvUrl').value.trim();
-      if(!v){ alert('ใส่ลิงก์ CSV ก่อน'); return; }
-      try{ markersRaw = await loadFromUrl(v); rebuild(); }
-      catch(e){ alert('โหลดลิงก์ CSV ไม่สำเร็จ'); console.error(e); }
-    });
-
     document.getElementById('filePicker').addEventListener('change', async (ev)=>{
       const file = ev.target.files?.[0];
       if(!file) return;
@@ -301,34 +269,17 @@
       catch(e){ alert('อ่านไฟล์ CSV ไม่สำเร็จ'); console.error(e); }
     });
 
-    document.getElementById('mode').addEventListener('change', (e)=>{ currentMode = e.target.value; rebuild(); });
-    document.getElementById('colorBy').addEventListener('change', (e)=>{ colorBy = e.target.value; rebuild(); });
+    document.getElementById('mode').addEventListener('change', (e)=>{ currentMode = e.target.value; if(markersRaw.length) rebuild(); });
+    document.getElementById('colorBy').addEventListener('change', (e)=>{ colorBy = e.target.value; if(markersRaw.length) rebuild(); });
 
     document.getElementById('btnSearch').addEventListener('click', ()=>{
       const q = document.getElementById('search').value.toLowerCase();
-      if(!q) return;
+      if(!q || !markersRaw.length) return;
       const r = markersRaw.find(v=> [v.name, v.salesperson, v.province].some(x=> (x||'').toLowerCase().includes(q)) );
       if(r){ map.setView([+r.lat,+r.lng], 15); }
     });
-
-    // ---------- Demo fallback ----------
-    const demoRows = [
-      { id:'BKK-001', name:'โรงงาน A', lat:13.745, lng:100.534, amount:5090,  salesperson:'Nui',  province:'กรุงเทพฯ', address:'คลองเตย',  photo:'', color:'#2563eb' },
-      { id:'BKK-002', name:'โรงงาน B', lat:13.736, lng:100.529, amount:4698, salesperson:'Nui',  province:'กรุงเทพฯ', address:'ลุมพินี',   photo:'', color:'#2563eb' },
-      { id:'BKK-003', name:'โรงงาน C', lat:13.732, lng:100.547, amount:6100, salesperson:'Pao',  province:'กรุงเทพฯ', address:'พระราม 4',  photo:'', color:'#059669' },
-      { id:'BKK-004', name:'โรงงาน D', lat:13.722, lng:100.522, amount:2128, salesperson:'Ball', province:'กรุงเทพฯ', address:'สาทร',      photo:'', color:'#ea580c' },
-      { id:'BKK-005', name:'โรงงาน E', lat:13.727, lng:100.513, amount:1579, salesperson:'Mint', province:'กรุงเทพฯ', address:'สีลม',      photo:'', color:'#db2777' },
-      { id:'BKK-006', name:'โรงงาน F', lat:13.730, lng:100.503, amount:4000, salesperson:'Mint', province:'กรุงเทพฯ', address:'เจริญกรุง', photo:'', color:'#db2777' },
-      { id:'BKK-007', name:'โรงงาน G', lat:13.718, lng:100.545, amount:630,  salesperson:'Pao',  province:'กรุงเทพฯ', address:'คลองเตย',  photo:'', color:'#059669' },
-      { id:'BKK-008', name:'โรงงาน H', lat:13.748, lng:100.525, amount:1791, salesperson:'Nui',  province:'กรุงเทพฯ', address:'ปทุมวัน',   photo:'', color:'#2563eb' },
-      { id:'BKK-009', name:'โรงงาน I', lat:13.756, lng:100.535, amount:3868, salesperson:'Mint', province:'กรุงเทพฯ', address:'ชิดลม',     photo:'', color:'#db2777' },
-      { id:'BKK-010', name:'โรงงาน J', lat:13.740, lng:100.518, amount:1100, salesperson:'Ball', province:'กรุงเทพฯ', address:'คลองสาน',   photo:'', color:'#ea580c' },
-      { id:'BKK-011', name:'โรงงาน K', lat:13.742, lng:100.546, amount:315,  salesperson:'Ball', province:'กรุงเทพฯ', address:'วัฒนา',     photo:'', color:'#ea580c' },
-      { id:'BKK-012', name:'โรงงาน L', lat:13.734, lng:100.540, amount:592,  salesperson:'Pao',  province:'กรุงเทพฯ', address:'เพลินจิต',  photo:'', color:'#059669' },
-    ];
 
     bootstrap();
   </script>
 </body>
 </html>
-
